@@ -1,7 +1,6 @@
 package fuck.andes
 
 import android.content.Context
-import android.content.res.Resources
 import android.os.Binder
 import android.os.IBinder
 import io.github.libxposed.api.XposedModule
@@ -10,8 +9,6 @@ internal object ContextualSearchHooks {
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
         hookContextualSearchBootstrap(module, logger, classLoader)
-        hookDeviceHasConfigString(module, logger, classLoader)
-        hookContextualSearchOnStart(module, logger, classLoader)
         hookContextualSearchPackage(module, logger, classLoader)
         hookContextualSearchPermission(module, logger, classLoader)
     }
@@ -49,67 +46,6 @@ internal object ContextualSearchHooks {
         ) { chain ->
             val result = chain.proceed()
             ensureContextualSearchService(module, logger, classLoader, chain.getThisObject(), "startOtherServices")
-            result
-        }
-    }
-
-    private fun hookDeviceHasConfigString(
-        module: XposedModule,
-        logger: ModuleLogger,
-        classLoader: ClassLoader
-    ) {
-        val systemServerClass = HookSupport.findClassOrNull(classLoader, ModuleConfig.SYSTEM_SERVER_CLASS)
-        val method = systemServerClass?.let {
-            HookSupport.findMethod(it, "deviceHasConfigString", Context::class.java, Int::class.javaPrimitiveType!!)
-        }
-        if (method == null) {
-            logger.warn("未找到 SystemServer.deviceHasConfigString(Context,int)")
-            return
-        }
-        val assistantConfigResId = resolveAssistantConfigResId(logger)
-        if (assistantConfigResId == null) {
-            logger.warn("未能解析 config_defaultWearableSensingConsentComponent，跳过服务注册 Guard")
-            return
-        }
-        logger.debug("Contextual Search 配置资源 ID = $assistantConfigResId")
-
-        HookSupport.hookMethod(module, logger, method, "SystemServer.deviceHasConfigString") { chain ->
-            val resId = chain.getArg(1) as Int
-            if (resId == assistantConfigResId) {
-                logger.debug("拦截 deviceHasConfigString: 强制放行 ContextualSearchManagerService")
-                true
-            } else {
-                chain.proceed()
-            }
-        }
-        HookSupport.deoptimize(
-            module,
-            logger,
-            method,
-            "SystemServer.deviceHasConfigString(Context,int)"
-        )
-    }
-
-    private fun hookContextualSearchOnStart(
-        module: XposedModule,
-        logger: ModuleLogger,
-        classLoader: ClassLoader
-    ) {
-        val serviceClass = HookSupport.findClassOrNull(classLoader, ModuleConfig.CONTEXTUAL_SEARCH_CLASS)
-        val onStartMethod = serviceClass?.let { HookSupport.findMethod(it, "onStart") }
-        if (onStartMethod == null) {
-            logger.warn("未找到 ContextualSearchManagerService.onStart()")
-            return
-        }
-
-        HookSupport.hookMethod(
-            module,
-            logger,
-            onStartMethod,
-            "ContextualSearchManagerService.onStart"
-        ) { chain ->
-            val result = chain.proceed()
-            logger.debug("ContextualSearchManagerService.onStart 已执行，binderAlive=${isContextualSearchServiceAlive()}")
             result
         }
     }
@@ -169,32 +105,6 @@ internal object ContextualSearchHooks {
         return packages.contains(ModuleConfig.SYSTEM_UI_PACKAGE)
     }
 
-    private fun resolveAssistantConfigResId(logger: ModuleLogger): Int? {
-        val fromSystemResources = Resources.getSystem().getIdentifier(
-            "config_defaultWearableSensingConsentComponent",
-            "string",
-            "android"
-        ).takeIf { it != 0 }
-        if (fromSystemResources != null) {
-            return fromSystemResources
-        }
-
-        val candidates = arrayOf("android.R\$string", "com.android.internal.R\$string")
-        for (candidate in candidates) {
-            val value = runCatching {
-                Class.forName(candidate)
-                    .getDeclaredField("config_defaultWearableSensingConsentComponent")
-                    .getInt(null)
-            }.getOrNull()
-            if (value != null && value != 0) {
-                return value
-            }
-        }
-
-        logger.warn("系统资源中不存在 config_defaultWearableSensingConsentComponent")
-        return null
-    }
-
     private fun ensureContextualSearchService(
         module: XposedModule,
         logger: ModuleLogger,
@@ -233,7 +143,7 @@ internal object ContextualSearchHooks {
             module.getInvoker(startServiceMethod).invoke(systemServiceManager, serviceClass)
         }.onSuccess {
             if (isContextualSearchServiceAlive()) {
-                logger.info("$source: 已补启动 ContextualSearchManagerService")
+                logger.debug("$source: 已补启动 ContextualSearchManagerService")
             } else {
                 logger.warn("$source: 已调用 startService(Class)，但 contextual_search 仍不可用")
             }

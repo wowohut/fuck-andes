@@ -6,6 +6,11 @@ internal object ModuleConfig {
     const val HOT_PATH_LOG_WINDOW_MS = 60_000L
 
     const val GOOGLE_PACKAGE = "com.google.android.googlequicksearchbox"
+    const val GOOGLE_ASSISTANT_COMPONENT =
+        "com.google.android.googlequicksearchbox/com.google.android.voiceinteraction.GsaVoiceInteractionService"
+    const val ASSISTANT_ROLE = "android.app.role.ASSISTANT"
+    const val SECURE_ASSISTANT = "assistant"
+    const val SECURE_VOICE_INTERACTION_SERVICE = "voice_interaction_service"
     const val SYSTEM_UI_PACKAGE = "com.android.systemui"
 
     const val CONTEXTUAL_SEARCH_ACTION = "android.app.contextualsearch.action.LAUNCH_CONTEXTUAL_SEARCH"
@@ -13,6 +18,9 @@ internal object ModuleConfig {
     const val CONTEXTUAL_SEARCH_CLASS =
         "com.android.server.contextualsearch.ContextualSearchManagerService"
     const val TIMINGS_TRACE_AND_SLOG_CLASS = "com.android.server.utils.TimingsTraceAndSlog"
+    const val VOICE_INTERACTION_SERVICE = "voiceinteraction"
+    const val VOICE_INTERACTION_MANAGER_SERVICE_CLASS =
+        "com.android.server.voiceinteraction.VoiceInteractionManagerService"
     const val OCR_BUSINESS_CLASS =
         "com.oplus.systemui.navigationbar.ocrscreen.OplusOcrScreenBusiness"
     const val SYSTEM_SERVER_CLASS = "com.android.server.SystemServer"
