@@ -7,6 +7,8 @@ import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Method
 
 internal object SystemUiHooks {
+    private const val OCR_LONG_PRESS_HAPTIC_EFFECT_ID = 1
+
     @Volatile
     private var getServiceMethod: Method? = null
 
@@ -16,7 +18,17 @@ internal object SystemUiHooks {
     @Volatile
     private var startContextualSearchMethod: Method? = null
 
+    @Volatile
+    private var systemUiClassLoader: ClassLoader? = null
+
+    @Volatile
+    private var vibrationHelperGetInstanceMethod: Method? = null
+
+    @Volatile
+    private var vibrationHelperVibrateCustomizedMethod: Method? = null
+
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
+        systemUiClassLoader = classLoader
         val businessClass = HookSupport.findClassOrNull(classLoader, ModuleConfig.OCR_BUSINESS_CLASS)
         val onLongPressedMethod = businessClass?.let {
             HookSupport.findMethod(it, "onLongPressed")
@@ -43,6 +55,7 @@ internal object SystemUiHooks {
             }
 
             if (triggerCircleToSearch(logger)) {
+                performOriginalLongPressHaptic(context, logger)
                 null
             } else {
                 chain.proceed()
@@ -128,5 +141,51 @@ internal object SystemUiHooks {
                 .getDeclaredMethod("startContextualSearch", Int::class.javaPrimitiveType!!)
                 .apply { isAccessible = true }
         }.getOrNull()?.also { startContextualSearchMethod = it }
+    }
+
+    private fun performOriginalLongPressHaptic(context: Context, logger: ModuleLogger) {
+        val vibrationHelper = resolveVibrationHelper(context) ?: run {
+            logger.warnThrottled(
+                "systemui_cts_vibration_helper_missing",
+                "SystemUI: 无法取得原生 VibrationHelper，跳过导航条长按震动"
+            )
+            return
+        }
+
+        if (!invokeVibrateCustomized(vibrationHelper, context)) {
+            logger.warnThrottled(
+                "systemui_cts_linear_haptic_failed",
+                "SystemUI: 调用原生导航条长按震动失败"
+            )
+        }
+    }
+
+    private fun resolveVibrationHelper(context: Context): Any? {
+        val classLoader = systemUiClassLoader ?: return null
+        val helperClass = HookSupport.findClassOrNull(
+            classLoader,
+            "com.oplus.systemui.navigationbar.gesture.VibrationHelper"
+        ) ?: return null
+        val getInstance = vibrationHelperGetInstanceMethod
+            ?: HookSupport.findMethod(helperClass, "getInstance", Context::class.java)
+                ?.also { vibrationHelperGetInstanceMethod = it }
+            ?: return null
+        return runCatching { getInstance.invoke(null, context) }.getOrNull()
+    }
+
+    private fun invokeVibrateCustomized(vibrationHelper: Any, context: Context): Boolean {
+        val method = vibrationHelperVibrateCustomizedMethod
+            ?: HookSupport.findMethod(
+                vibrationHelper.javaClass,
+                "vibrateCustomized",
+                Context::class.java,
+                Int::class.javaPrimitiveType!!,
+                Boolean::class.javaPrimitiveType!!
+            )?.also { vibrationHelperVibrateCustomizedMethod = it }
+            ?: return false
+        return runCatching {
+            method.invoke(vibrationHelper, context, OCR_LONG_PRESS_HAPTIC_EFFECT_ID, false)
+            true
+        }.getOrDefault(false)
     }
 }

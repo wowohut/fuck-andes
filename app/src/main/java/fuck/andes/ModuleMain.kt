@@ -25,7 +25,6 @@ class ModuleMain : XposedModule() {
     }
 
     override fun onPackageReady(param: PackageReadyParam) {
-        if (!param.isFirstPackage) return
         when (param.packageName) {
             ModuleConfig.SYSTEM_UI_PACKAGE -> {
                 if (!systemUiInstalled) {
