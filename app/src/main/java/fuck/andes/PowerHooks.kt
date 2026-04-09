@@ -17,6 +17,9 @@ internal object PowerHooks {
     private const val RECOVERY_RETRY_INITIAL_DELAY_MS = 1_200L
     private const val RECOVERY_RETRY_STEP_DELAY_MS = 1_200L
     private const val RECOVERY_SUCCESS_SUPPRESS_WINDOW_MS = 5_000L
+    private const val OEM_ASSISTANT_HAPTIC_EFFECT_ID = 0
+    private const val OEM_ASSISTANT_HAPTIC_REASON = "Speech - Long Press"
+    private const val RECOVERY_SOURCE_MARKER = "_recovery"
 
     @Volatile
     private var lastInterceptUptime = 0L
@@ -125,7 +128,7 @@ internal object PowerHooks {
                 sleepMs = 0L
             )
         ) {
-            markLaunchSuccess(now)
+            finalizeSuccessfulLaunch(logger, phoneWindowManager, source, now)
             logger.debug("$source: 已通过 voiceinteraction 启动 Google")
             return LaunchResult.LAUNCHED
         }
@@ -143,7 +146,7 @@ internal object PowerHooks {
                 sleepMs = SESSION_RETRY_SLEEP_MS
             )
         ) {
-            markLaunchSuccess(now)
+            finalizeSuccessfulLaunch(logger, phoneWindowManager, source, now)
             logger.debug("$source: 重建 voiceinteraction 实现后已启动 Google")
             return LaunchResult.LAUNCHED
         }
@@ -162,7 +165,7 @@ internal object PowerHooks {
                 sleepMs = POST_REFRESH_SESSION_RETRY_SLEEP_MS
             )
         ) {
-            markLaunchSuccess(now)
+            finalizeSuccessfulLaunch(logger, phoneWindowManager, source, now)
             logger.debug("$source: 刷新默认助理后已通过 voiceinteraction 启动 Google")
             return LaunchResult.LAUNCHED
         }
@@ -180,11 +183,19 @@ internal object PowerHooks {
             return LaunchResult.NOT_HANDLED
         }
 
-        if (startGoogleAssistActivity(context, logger, source, now, Intent.ACTION_ASSIST)) {
+        if (startGoogleAssistActivity(context, logger, phoneWindowManager, source, now, Intent.ACTION_ASSIST)) {
             return LaunchResult.LAUNCHED
         }
 
-        return if (startGoogleAssistActivity(context, logger, source, now, Intent.ACTION_VOICE_COMMAND)) {
+        return if (startGoogleAssistActivity(
+                context,
+                logger,
+                phoneWindowManager,
+                source,
+                now,
+                Intent.ACTION_VOICE_COMMAND
+            )
+        ) {
             LaunchResult.LAUNCHED
         } else {
             LaunchResult.NOT_HANDLED
@@ -194,6 +205,7 @@ internal object PowerHooks {
     private fun startGoogleAssistActivity(
         context: Context,
         logger: ModuleLogger,
+        phoneWindowManager: Any,
         source: String,
         now: Long,
         action: String
@@ -212,7 +224,7 @@ internal object PowerHooks {
 
         return runCatching {
             context.startActivity(intent)
-            markLaunchSuccess(now)
+            finalizeSuccessfulLaunch(logger, phoneWindowManager, source, now)
             logger.debug("$source: 已通过 $action 启动 Google")
             true
         }.getOrElse { throwable ->
@@ -222,6 +234,51 @@ internal object PowerHooks {
             )
             false
         }
+    }
+
+    private fun finalizeSuccessfulLaunch(
+        logger: ModuleLogger,
+        phoneWindowManager: Any,
+        source: String,
+        now: Long
+    ) {
+        markLaunchSuccess(now)
+        maybePerformAssistantHapticFeedback(logger, phoneWindowManager, source)
+    }
+
+    private fun maybePerformAssistantHapticFeedback(
+        logger: ModuleLogger,
+        phoneWindowManager: Any,
+        source: String
+    ) {
+        if (source.contains(RECOVERY_SOURCE_MARKER)) {
+            logger.debug("$source: 延迟自愈重试成功，跳过补发长按助理震感")
+            return
+        }
+
+        if (invokeOplusAssistantHapticFeedback(phoneWindowManager)) {
+            logger.debug("$source: 已补发 Oplus 原生助理震感")
+            return
+        }
+
+        logger.warnThrottled(
+            "${source}_assistant_haptic_missing",
+            "$source: 未找到 Oplus 原生长按助理震感入口"
+        )
+    }
+
+    private fun invokeOplusAssistantHapticFeedback(phoneWindowManager: Any): Boolean {
+        val wrapper = HookSupport.invokeNoArgs(phoneWindowManager, "getWrapper") ?: return false
+        val wrapperMethod = HookSupport.findMethod(
+            wrapper.javaClass,
+            "performHapticFeedback",
+            Int::class.javaPrimitiveType!!,
+            String::class.java
+        ) ?: return false
+        return runCatching {
+            wrapperMethod.invoke(wrapper, OEM_ASSISTANT_HAPTIC_EFFECT_ID, OEM_ASSISTANT_HAPTIC_REASON)
+            true
+        }.getOrDefault(false)
     }
 
     private fun tryShowGoogleAssistantSession(
