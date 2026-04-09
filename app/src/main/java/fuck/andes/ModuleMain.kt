@@ -36,7 +36,7 @@ class ModuleMain : XposedModule() {
             ModuleConfig.GOOGLE_PACKAGE -> {
                 if (!googleInstalled) {
                     googleInstalled = true
-                    GoogleAppHooks.install(logger)
+                    GoogleAppHooks.install(this, logger, param.classLoader)
                 }
             }
         }

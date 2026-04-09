@@ -30,6 +30,15 @@ internal object HookSupport {
         return null
     }
 
+    fun findDeclaredMethod(
+        clazz: Class<*>,
+        name: String,
+        vararg parameterTypes: Class<*>
+    ): Method? =
+        runCatching {
+            clazz.getDeclaredMethod(name, *parameterTypes).apply { isAccessible = true }
+        }.getOrNull()
+
     fun findField(clazz: Class<*>, name: String): Field? {
         var current: Class<*>? = clazz
         while (current != null) {
