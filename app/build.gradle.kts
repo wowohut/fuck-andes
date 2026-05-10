@@ -10,7 +10,7 @@ android {
         applicationId = "fuck.andes"
         minSdk = 26
         targetSdk = 36
-        versionCode = 10
+        versionCode = 135
         versionName = "1.3.5"
     }
 
