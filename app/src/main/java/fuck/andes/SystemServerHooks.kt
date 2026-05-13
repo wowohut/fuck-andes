@@ -5,6 +5,7 @@ import io.github.libxposed.api.XposedModule
 internal object SystemServerHooks {
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
+        NavigationBarHideHooks.install(module, logger, "system_server")
         ContextualSearchHooks.install(module, logger, classLoader)
         AssistantManager.install(module, logger, classLoader)
         HotwordSelfHealHooks.install(module, logger, classLoader)

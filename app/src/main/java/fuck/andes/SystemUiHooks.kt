@@ -17,6 +17,8 @@ internal object SystemUiHooks {
     private var vibrationHelperVibrateCustomizedMethod: Method? = null
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
+        NavigationBarHideHooks.install(module, logger, "SystemUI")
+        HiddenGestureHandleHooks.install(module, logger, classLoader)
         systemUiClassLoader = classLoader
         val businessClass = HookSupport.findClassOrNull(classLoader, ModuleConfig.OCR_BUSINESS_CLASS)
         val onLongPressedMethod = businessClass?.let {
