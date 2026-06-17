@@ -4,6 +4,7 @@ import io.github.libxposed.api.XposedModule
 import io.github.libxposed.api.XposedModuleInterface.ModuleLoadedParam
 import io.github.libxposed.api.XposedModuleInterface.PackageReadyParam
 import io.github.libxposed.api.XposedModuleInterface.SystemServerStartingParam
+import fuck.andes.config.Prefs
 
 class ModuleMain : XposedModule() {
 
@@ -16,6 +17,10 @@ class ModuleMain : XposedModule() {
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         currentProcessName = param.processName
+        // 缓存框架提供的只读 remote preferences，供所有 hook 拦截回调即时读取。
+        // getRemotePreferences 是 XposedInterface 的方法，XposedModule 继承自其 Wrapper 可直接调用。
+        // 调用失败（框架不支持 remote）时静默回退默认值（全开），不影响 hook 安装。
+        Prefs.attachRemote(runCatching { getRemotePreferences(Prefs.GROUP) }.getOrNull())
         logger.debug(
             "模块已加载 process=${param.processName}, framework=$frameworkName($frameworkVersionCode), api=$apiVersion"
         )

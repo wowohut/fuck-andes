@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Handler
 import android.os.Message
 import android.os.SystemClock
+import fuck.andes.config.Prefs
 import io.github.libxposed.api.XposedModule
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -37,6 +38,7 @@ internal object PowerHooks {
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
         // 当前机型实测证明 OplusSpeechHandler 是必要路径。
+        // 开关在拦截回调里即时判断，关闭则走原逻辑，无需重启进程。
         hookOplusSpeechHandler(module, logger, classLoader)
     }
 
@@ -62,6 +64,11 @@ internal object PowerHooks {
         ) { chain ->
             val message = chain.getArg(0) as? Message
             if (message?.what != ModuleConfig.OP_LUS_ASSIST_MESSAGE_WHAT) {
+                return@hookMethod chain.proceed()
+            }
+
+            // 即时生效：开关关闭则走原逻辑（小布），不拦截。
+            if (!Prefs.isEnabled(Prefs.Keys.POWER_KEY_TAKEOVER)) {
                 return@hookMethod chain.proceed()
             }
 
@@ -328,6 +335,10 @@ internal object PowerHooks {
                     return@postDelayed
                 }
                 if (SystemClock.uptimeMillis() - lastSuccessfulLaunchUptime <= RECOVERY_SUCCESS_SUPPRESS_WINDOW_MS) {
+                    return@postDelayed
+                }
+                // 即时关闭：开关在延迟任务排队期间可能已被用户关闭。
+                if (!Prefs.isEnabled(Prefs.Keys.POWER_KEY_TAKEOVER)) {
                     return@postDelayed
                 }
 

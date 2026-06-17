@@ -8,6 +8,7 @@ import io.github.libxposed.api.XposedModule
 internal object ContextualSearchHooks {
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
+        // ContextualSearch 服务补齐是一圈即搜的底层依赖（被 ColorOS 砍掉），不可选。
         hookContextualSearchBootstrap(module, logger, classLoader)
         hookContextualSearchPackage(module, logger, classLoader)
         hookContextualSearchPermission(module, logger, classLoader)

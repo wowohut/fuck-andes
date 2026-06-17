@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Parcelable
 import android.os.SystemClock
+import fuck.andes.config.Prefs
 import io.github.libxposed.api.XposedModule
 import org.json.JSONObject
 
@@ -51,6 +52,10 @@ internal object ColorDirectHooks {
             method,
             "CollectInfoActivity.M"
         ) { chain ->
+            // 即时生效：开关关闭则走原双指识屏逻辑。
+            if (!Prefs.isEnabled(Prefs.Keys.DOUBLE_FINGER_CIRCLE_TO_SEARCH)) {
+                return@hookMethod chain.proceed()
+            }
             val activity = chain.getThisObject() as? Activity
             val intent = chain.getArg(0) as? Intent
             if (activity == null || !isDoubleFingerCollectIntent(intent, startInfoClass)) {

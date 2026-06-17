@@ -5,6 +5,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.PowerManager
 import android.os.SystemClock
+import fuck.andes.config.Prefs
 import io.github.libxposed.api.XposedModule
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -51,7 +52,8 @@ internal object HotwordSelfHealHooks {
         ) { chain ->
             val displayId = chain.getArg(0) as? Int ?: -1
             val result = chain.proceed()
-            if (displayId == 0) {
+            // 即时生效：开关关闭则不恢复热词检测。
+            if (displayId == 0 && Prefs.isEnabled(Prefs.Keys.HOTWORD_SELF_HEAL)) {
                 scheduleHotwordResume(chain.getThisObject(), logger)
             }
             result
@@ -96,6 +98,11 @@ internal object HotwordSelfHealHooks {
         lateinit var retryRunnable: Runnable
         retryRunnable = Runnable {
             if (resumeGeneration.get() != generation) {
+                return@Runnable
+            }
+            // 即时关闭：开关在延迟任务排队期间可能已被用户关闭。
+            if (!Prefs.isEnabled(Prefs.Keys.HOTWORD_SELF_HEAL)) {
+                cancelPendingResume(resetCooldown = true)
                 return@Runnable
             }
             if (!isDeviceNonInteractive(context)) {

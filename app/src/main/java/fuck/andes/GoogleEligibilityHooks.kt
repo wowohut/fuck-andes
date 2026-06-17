@@ -11,6 +11,8 @@ internal object GoogleEligibilityHooks {
     )
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
+        // 资格补齐与机型伪装同属"让 Google App 认为设备具备资格"的一件事，
+        // 作为一圈即搜的底层依赖始终执行。
         hookSystemProperties(module, logger)
         hookPackageManagerFeatures(module, logger, classLoader)
         logger.debug("GoogleEligibility: 已安装 Google App 资格补齐")

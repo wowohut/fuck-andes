@@ -1,6 +1,7 @@
 package fuck.andes
 
 import android.content.Context
+import fuck.andes.config.Prefs
 import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Method
 
@@ -33,6 +34,10 @@ internal object SystemUiHooks {
             onLongPressedMethod,
             "OplusOcrScreenBusiness.onLongPressed"
         ) { chain ->
+            // 即时生效：开关关闭则走原 OCR 逻辑。
+            if (!Prefs.isEnabled(Prefs.Keys.GESTURE_BAR_CIRCLE_TO_SEARCH)) {
+                return@hookMethod chain.proceed()
+            }
             val context = resolveContext(chain.getThisObject())
             if (context == null) {
                 logger.warnThrottled("systemui_context", "SystemUI 无法取得 Context，回退原 OCR 逻辑")

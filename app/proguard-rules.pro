@@ -27,3 +27,15 @@
 -keep,allowoptimization,allowobfuscation public class * extends io.github.libxposed.api.XposedModule {
     public <init>();
 }
+
+# Compose 编译器生成的 Composable Lambda 与 Composable 主体依赖运行时反射，
+# R8 默认规则已覆盖 androidx.compose.**；这里仅保留 miuix（KMP 库，反射面不可控）。
+-keep class top.yukonga.miuix.** { *; }
+-dontwarn top.yukonga.miuix.**
+
+# libxposed service 库的 binder/Parcelable 反射需保护，避免 release 裁剪后 RemotePreferences 失效。
+-keep class io.github.libxposed.service.** { *; }
+-dontwarn io.github.libxposed.service.**
+
+# 模块配置读写依赖的 SharedPreferences 与枚举键，避免 release 裁剪枚举导致 key 失配。
+-keep class fuck.andes.config.** { *; }

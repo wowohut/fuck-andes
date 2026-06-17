@@ -7,6 +7,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import fuck.andes.config.Prefs
 import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Field
 
@@ -21,12 +22,15 @@ internal object GoogleAppHooks {
 
     @Suppress("UNUSED_PARAMETER")
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
-        // 只在 Google 进程内伪装机型，尽量缩小对系统其余进程的影响面。
+        // 机型伪装：在 Google 进程内伪装为 Samsung S24 Ultra，以放开一圈即搜能力。
+        // Build 字段是启动时一次性写入的副作用，作为一圈即搜的底层依赖始终执行。
         setBuildField(logger, Build::class.java, "MANUFACTURER", ModuleConfig.SPOOF_MANUFACTURER)
         setBuildField(logger, Build::class.java, "BRAND", ModuleConfig.SPOOF_BRAND)
         setBuildField(logger, Build::class.java, "MODEL", ModuleConfig.SPOOF_MODEL)
         setBuildField(logger, Build::class.java, "PRODUCT", ModuleConfig.SPOOF_PRODUCT)
         setBuildField(logger, Build::class.java, "DEVICE", ModuleConfig.SPOOF_DEVICE)
+
+        // 锁屏补语音输入：开关在拦截回调里即时判断。
         hookFloatyVoiceCommand(module, logger, classLoader)
     }
 
@@ -80,6 +84,8 @@ internal object GoogleAppHooks {
     }
 
     private fun scheduleVoiceCommand(activity: Activity, logger: ModuleLogger) {
+        // 即时生效：开关关闭则不补发语音输入。
+        if (!Prefs.isEnabled(Prefs.Keys.LOCKSCREEN_VOICE_COMMAND)) return
         val now = SystemClock.uptimeMillis()
         if (now - lastVoiceCommandUptime < VOICE_COMMAND_COOLDOWN_MS) {
             return
@@ -87,6 +93,8 @@ internal object GoogleAppHooks {
         lastVoiceCommandUptime = now
 
         Handler(Looper.getMainLooper()).postDelayed({
+            // 即时关闭：开关在延迟任务排队期间可能已被用户关闭。
+            if (!Prefs.isEnabled(Prefs.Keys.LOCKSCREEN_VOICE_COMMAND)) return@postDelayed
             if (activity.isFinishing || activity.isDestroyed || !activity.isKeyguardLocked()) {
                 return@postDelayed
             }

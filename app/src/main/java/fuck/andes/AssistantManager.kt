@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.os.IBinder
 import android.os.SystemClock
 import android.provider.Settings
+import fuck.andes.config.Prefs
 import io.github.libxposed.api.XposedModule
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executor
@@ -58,14 +59,19 @@ internal object AssistantManager {
             val result = chain.proceed()
             captureVoiceInteractionManagerStub(chain.getThisObject())
             if (phase == BOOT_COMPLETED_PHASE) {
-                val context = HookSupport.getFieldValue(chain.getThisObject(), "mContext") as? Context
-                if (context == null) {
-                    logger.warnThrottled(
-                        "assistant_boot_missing_context",
-                        "AssistantManager: boot completed 时无法取得 mContext"
-                    )
+                // 即时生效：开关关闭则不自动校正默认助理。
+                if (!Prefs.isEnabled(Prefs.Keys.ASSISTANT_AUTO_CONFIG)) {
+                    logger.debug("AssistantManager: 自动校正已关闭，跳过 boot 校正")
                 } else {
-                    ensureGoogleAssistantConfigured(context, logger)
+                    val context = HookSupport.getFieldValue(chain.getThisObject(), "mContext") as? Context
+                    if (context == null) {
+                        logger.warnThrottled(
+                            "assistant_boot_missing_context",
+                            "AssistantManager: boot completed 时无法取得 mContext"
+                        )
+                    } else {
+                        ensureGoogleAssistantConfigured(context, logger)
+                    }
                 }
             }
             result
@@ -593,6 +599,10 @@ internal object AssistantManager {
         ) { chain ->
             val result = chain.proceed()
             captureVoiceInteractionManagerStub(chain.getThisObject())
+            // 即时生效：开关关闭则不自动校正默认助理。
+            if (!Prefs.isEnabled(Prefs.Keys.ASSISTANT_AUTO_CONFIG)) {
+                return@hookMethod result
+            }
             val context = HookSupport.getFieldValue(chain.getThisObject(), "mContext") as? Context
             if (context != null) {
                 val userId = when (methodName) {
