@@ -3,6 +3,9 @@ package fuck.andes.ui
 import android.content.Context
 import android.content.SharedPreferences
 import android.widget.Toast
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.Composable
@@ -10,18 +13,28 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.unit.dp
 import fuck.andes.FuckAndesApp
 import fuck.andes.config.Prefs
+import fuck.andes.systemizer.GoogleAppSystemizerInstaller
+import fuck.andes.systemizer.SystemizerInstallResult
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import top.yukonga.miuix.kmp.basic.BasicComponent
+import top.yukonga.miuix.kmp.basic.ButtonDefaults
 import top.yukonga.miuix.kmp.basic.Card
 import top.yukonga.miuix.kmp.basic.MiuixScrollBehavior
 import top.yukonga.miuix.kmp.basic.Scaffold
 import top.yukonga.miuix.kmp.basic.SmallTitle
+import top.yukonga.miuix.kmp.basic.TextButton
 import top.yukonga.miuix.kmp.basic.TopAppBar
+import top.yukonga.miuix.kmp.overlay.OverlayDialog
+import top.yukonga.miuix.kmp.preference.ArrowPreference
 import top.yukonga.miuix.kmp.preference.SwitchPreference
 
 /**
@@ -34,6 +47,9 @@ import top.yukonga.miuix.kmp.preference.SwitchPreference
 @Composable
 internal fun SettingsScreen(context: Context) {
     val scrollBehavior = MiuixScrollBehavior()
+    val coroutineScope = rememberCoroutineScope()
+    var showSystemizerDialog by remember { mutableStateOf(false) }
+    var installingSystemizer by remember { mutableStateOf(false) }
 
     // prefs 绑定到 XposedService：service 到达时切换到 RemotePreferences（跨进程提交到
     // LSPosed 数据库）；未就绪时保持 null，UI 禁止修改。
@@ -114,6 +130,82 @@ internal fun SettingsScreen(context: Context) {
                     )
                 }
             }
+            item(key = "section_systemizer") {
+                SmallTitle("系统化")
+                Card(modifier = Modifier.padding(horizontal = 12.dp)) {
+                    ArrowPreference(
+                        title = "转为系统应用",
+                        summary = "将 Google App 安装为系统 priv-app，获得语音唤醒依赖，减少自启等烦恼，方便使用",
+                        enabled = !installingSystemizer,
+                        holdDownState = showSystemizerDialog,
+                        onClick = {
+                            if (!installingSystemizer) {
+                                showSystemizerDialog = true
+                            }
+                        },
+                    )
+                }
+            }
+        }
+
+        SystemizerConfirmDialog(
+            show = showSystemizerDialog,
+            installing = installingSystemizer,
+            onDismissRequest = {
+                if (!installingSystemizer) {
+                    showSystemizerDialog = false
+                }
+            },
+            onConfirm = {
+                if (installingSystemizer) return@SystemizerConfirmDialog
+                showSystemizerDialog = false
+                installingSystemizer = true
+                coroutineScope.launch {
+                    val result = withContext(Dispatchers.IO) {
+                        GoogleAppSystemizerInstaller(context.applicationContext).install()
+                    }
+                    installingSystemizer = false
+                    Toast.makeText(
+                        context.applicationContext,
+                        result.toToastMessage(),
+                        Toast.LENGTH_LONG,
+                    ).show()
+                }
+            },
+        )
+    }
+}
+
+@Composable
+private fun SystemizerConfirmDialog(
+    show: Boolean,
+    installing: Boolean,
+    onDismissRequest: () -> Unit,
+    onConfirm: () -> Unit,
+) {
+    OverlayDialog(
+        show = show,
+        title = "转为系统应用",
+        summary = "将通过 root 安装 Google App 系统化模块，重启后生效。",
+        onDismissRequest = onDismissRequest,
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            TextButton(
+                text = "取消",
+                onClick = onDismissRequest,
+                modifier = Modifier.weight(1f),
+                enabled = !installing,
+            )
+            TextButton(
+                text = "确定",
+                onClick = onConfirm,
+                modifier = Modifier.weight(1f),
+                enabled = !installing,
+                colors = ButtonDefaults.textButtonColorsPrimary(),
+            )
         }
     }
 }
@@ -164,3 +256,18 @@ private fun putBooleanSync(
     value: Boolean
 ): Boolean =
     runCatching { prefs.edit().putBoolean(key, value).commit() }.getOrDefault(false)
+
+private fun SystemizerInstallResult.toToastMessage(): String =
+    when (this) {
+        SystemizerInstallResult.AlreadySystemized -> "Google App 已是系统 priv-app"
+        SystemizerInstallResult.GoogleAppMissing -> "未安装 Google App"
+        SystemizerInstallResult.UnsupportedRootManager -> "未检测到 Magisk 或 KernelSU"
+        SystemizerInstallResult.KernelSuOverlayMissing -> "KernelSU 需先安装 meta-overlayfs 模块"
+        is SystemizerInstallResult.InstalledRebootRequired -> "安装完成，重启后生效"
+        is SystemizerInstallResult.Failed -> commandOutput
+            .lineSequence()
+            .map { it.trim() }
+            .lastOrNull { it.isNotEmpty() }
+            ?.let { "$message：$it" }
+            ?: message
+    }
