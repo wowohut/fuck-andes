@@ -20,6 +20,8 @@ internal object GoogleAppHooks {
     @Volatile
     private var lastVoiceCommandUptime = 0L
 
+    private val voiceCommandCooldownLock = Any()
+
     @Suppress("UNUSED_PARAMETER")
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
         // 机型伪装：在 Google 进程内伪装为 Samsung S24 Ultra，以放开一圈即搜能力。
@@ -30,7 +32,7 @@ internal object GoogleAppHooks {
         setBuildField(logger, Build::class.java, "PRODUCT", ModuleConfig.SPOOF_PRODUCT)
         setBuildField(logger, Build::class.java, "DEVICE", ModuleConfig.SPOOF_DEVICE)
 
-        // 锁屏补语音输入：开关在拦截回调里即时判断。
+        // 锁屏/亮屏补语音输入：开关在拦截回调里即时判断。
         hookFloatyVoiceCommand(module, logger, classLoader)
     }
 
@@ -54,8 +56,8 @@ internal object GoogleAppHooks {
             ) { chain ->
                 val result = chain.proceed()
                 val activity = chain.getThisObject() as? Activity
-                if (activity?.isKeyguardLocked() == true) {
-                    scheduleVoiceCommand(activity, logger)
+                if (activity != null) {
+                    scheduleVoiceCommand(activity, logger, fromKeyguard = activity.isKeyguardLocked())
                 }
                 result
             }
@@ -64,7 +66,7 @@ internal object GoogleAppHooks {
 
         val onResumeMethod = HookSupport.findMethod(Activity::class.java, "onResume")
         if (onResumeMethod == null) {
-            logger.warn("GSA: 未找到 Activity.onResume()，跳过 Gemini 锁屏语音补偿")
+            logger.warn("GSA: 未找到 Activity.onResume()，跳过 Gemini 锁屏/亮屏语音补偿")
             return
         }
 
@@ -76,26 +78,40 @@ internal object GoogleAppHooks {
         ) { chain ->
             val result = chain.proceed()
             val activity = chain.getThisObject() as? Activity
-            if (activity?.javaClass?.name == FLOATY_ACTIVITY_CLASS && activity.isKeyguardLocked()) {
-                scheduleVoiceCommand(activity, logger)
+            if (activity?.javaClass?.name == FLOATY_ACTIVITY_CLASS) {
+                scheduleVoiceCommand(activity, logger, fromKeyguard = activity.isKeyguardLocked())
             }
             result
         }
     }
 
-    private fun scheduleVoiceCommand(activity: Activity, logger: ModuleLogger) {
-        // 开关关闭则不补发语音输入。
-        if (!Prefs.isEnabled(Prefs.Keys.LOCKSCREEN_VOICE_COMMAND)) return
-        val now = SystemClock.uptimeMillis()
-        if (now - lastVoiceCommandUptime < VOICE_COMMAND_COOLDOWN_MS) {
+    private fun scheduleVoiceCommand(activity: Activity, logger: ModuleLogger, fromKeyguard: Boolean) {
+        // 锁屏走 LOCKSCREEN_VOICE_COMMAND，亮屏走 SCREEN_ON_VOICE_COMMAND；开关关闭则不补发。
+        val prefKey = if (fromKeyguard) {
+            Prefs.Keys.LOCKSCREEN_VOICE_COMMAND
+        } else {
+            Prefs.Keys.SCREEN_ON_VOICE_COMMAND
+        }
+        if (!Prefs.isEnabled(prefKey)) return
+        // 冷却只在通过延迟复查并准备补发时消耗：若排队后因状态变化放弃，不占用冷却窗口，
+        // 避免吞掉紧随其来的另一路（锁屏↔亮屏）补偿。
+        if (isVoiceCommandCoolingDown()) {
             return
         }
-        lastVoiceCommandUptime = now
 
+        val scenario = if (fromKeyguard) "锁屏" else "亮屏"
         Handler(Looper.getMainLooper()).postDelayed({
             // 即时关闭：开关在延迟任务排队期间可能已被用户关闭。
-            if (!Prefs.isEnabled(Prefs.Keys.LOCKSCREEN_VOICE_COMMAND)) return@postDelayed
-            if (activity.isFinishing || activity.isDestroyed || !activity.isKeyguardLocked()) {
+            if (!Prefs.isEnabled(prefKey)) return@postDelayed
+            if (activity.isFinishing || activity.isDestroyed) {
+                return@postDelayed
+            }
+            // 延迟期间锁屏状态发生变化则放弃：锁屏分支复查应仍锁屏，亮屏分支复查应仍解锁。
+            if (activity.isKeyguardLocked() != fromKeyguard) {
+                return@postDelayed
+            }
+            // 补发前原子消耗冷却：延迟窗口内另一路可能已进入补发路径。
+            if (!tryConsumeVoiceCommandCooldown()) {
                 return@postDelayed
             }
             runCatching {
@@ -105,15 +121,31 @@ internal object GoogleAppHooks {
                         addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                     }
                 )
-                logger.debug("GSA: 已为锁屏 Gemini 浮窗补发 ACTION_VOICE_COMMAND")
+                logger.debug("GSA: 已为${scenario} Gemini 浮窗补发 ACTION_VOICE_COMMAND")
             }.onFailure { throwable ->
                 logger.warnThrottled(
                     "gsa_floaty_voice_command_failed",
-                    "GSA: 锁屏 Gemini 浮窗补发 ACTION_VOICE_COMMAND 失败: ${throwable.message}"
+                    "GSA: ${scenario} Gemini 浮窗补发 ACTION_VOICE_COMMAND 失败: ${throwable.message}"
                 )
             }
         }, VOICE_COMMAND_DELAY_MS)
     }
+
+    private fun isVoiceCommandCoolingDown(now: Long = SystemClock.uptimeMillis()): Boolean {
+        val last = lastVoiceCommandUptime
+        return last != 0L && now - last < VOICE_COMMAND_COOLDOWN_MS
+    }
+
+    private fun tryConsumeVoiceCommandCooldown(): Boolean =
+        synchronized(voiceCommandCooldownLock) {
+            val now = SystemClock.uptimeMillis()
+            if (isVoiceCommandCoolingDown(now)) {
+                false
+            } else {
+                lastVoiceCommandUptime = now
+                true
+            }
+        }
 
     private fun Activity.isKeyguardLocked(): Boolean =
         runCatching {

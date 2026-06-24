@@ -17,6 +17,10 @@ class ModuleMain : XposedModule() {
 
     override fun onModuleLoaded(param: ModuleLoadedParam) {
         currentProcessName = param.processName
+        if (!shouldKeepLifecycleCallbacks(param)) {
+            detach()
+            return
+        }
         // 缓存框架提供的只读 remote preferences，供所有 hook 拦截回调即时读取。
         // getRemotePreferences 是 XposedInterface 的方法，XposedModule 继承自其 Wrapper 可直接调用。
         // 调用失败（框架不支持 remote）时静默回退默认值（全开），不影响 hook 安装。
@@ -60,6 +64,17 @@ class ModuleMain : XposedModule() {
 
     private fun isCurrentPackageProcess(packageName: String): Boolean {
         val processName = currentProcessName ?: return false
-        return processName == packageName || processName.startsWith("$packageName:")
+        return isPackageProcess(processName, packageName)
     }
+
+    private fun shouldKeepLifecycleCallbacks(param: ModuleLoadedParam): Boolean {
+        if (param.isSystemServer) return true
+        val processName = param.processName
+        return processName == ModuleConfig.SYSTEM_UI_PACKAGE ||
+            isPackageProcess(processName, ModuleConfig.GOOGLE_PACKAGE) ||
+            isPackageProcess(processName, ModuleConfig.COLOR_DIRECT_PACKAGE)
+    }
+
+    private fun isPackageProcess(processName: String, packageName: String): Boolean =
+        processName == packageName || processName.startsWith("$packageName:")
 }

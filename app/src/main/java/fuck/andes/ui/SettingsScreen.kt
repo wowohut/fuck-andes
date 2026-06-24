@@ -178,6 +178,15 @@ internal fun SettingsScreen(context: Context) {
                         icon = MiuixIcons.Lock,
                         iconTint = IconTintGreen,
                     )
+                    PrefDivider()
+                    SwitchPref(
+                        context = context,
+                        prefs = prefs,
+                        title = "亮屏唤起自动语音输入",
+                        key = Prefs.Keys.SCREEN_ON_VOICE_COMMAND,
+                        icon = MiuixIcons.Mic,
+                        iconTint = IconTintGreen,
+                    )
                 }
             }
 

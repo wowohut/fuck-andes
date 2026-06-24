@@ -20,4 +20,5 @@ local.properties
 
 /.analysis/
 /.tmp/
+/.kotlin/
 /.idea/deploymentTargetSelector.xml

@@ -29,6 +29,7 @@ internal object Prefs {
         const val GESTURE_BAR_CIRCLE_TO_SEARCH = "gesture_bar_circle_to_search"
         const val DOUBLE_FINGER_CIRCLE_TO_SEARCH = "double_finger_circle_to_search"
         const val LOCKSCREEN_VOICE_COMMAND = "lockscreen_voice_command"
+        const val SCREEN_ON_VOICE_COMMAND = "screen_on_voice_command"
 
         /** 全部布尔开关及其默认值。 */
         val BOOLEAN_DEFAULTS: Map<String, Boolean> = mapOf(
@@ -37,7 +38,8 @@ internal object Prefs {
             HOTWORD_SELF_HEAL to true,
             GESTURE_BAR_CIRCLE_TO_SEARCH to true,
             DOUBLE_FINGER_CIRCLE_TO_SEARCH to true,
-            LOCKSCREEN_VOICE_COMMAND to true
+            LOCKSCREEN_VOICE_COMMAND to true,
+            SCREEN_ON_VOICE_COMMAND to true
         )
     }
 
