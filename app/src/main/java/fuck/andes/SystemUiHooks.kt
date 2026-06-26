@@ -1,6 +1,7 @@
 package fuck.andes
 
 import android.content.Context
+import android.content.Intent
 import fuck.andes.config.Prefs
 import io.github.libxposed.api.XposedModule
 import java.lang.reflect.Method
@@ -19,6 +20,9 @@ internal object SystemUiHooks {
 
     fun install(module: XposedModule, logger: ModuleLogger, classLoader: ClassLoader) {
         systemUiClassLoader = classLoader
+        
+        hookStartService(module, logger, classLoader)
+
         val businessClass = HookSupport.findClassOrNull(classLoader, ModuleConfig.OCR_BUSINESS_CLASS)
         val onLongPressedMethod = businessClass?.let {
             HookSupport.findMethod(it, "onLongPressed")
@@ -114,4 +118,61 @@ internal object SystemUiHooks {
             true
         }.getOrDefault(false)
     }
+
+    private fun hookStartService(
+        module: XposedModule,
+        logger: ModuleLogger,
+        classLoader: ClassLoader
+    ) {
+        val contextWrapperClass = HookSupport.findClassOrNull(classLoader, "android.content.ContextWrapper")
+        val contextImplClass = HookSupport.findClassOrNull(classLoader, "android.app.ContextImpl")
+        val classesToHook = listOfNotNull(contextWrapperClass, contextImplClass)
+
+        if (classesToHook.isEmpty()) {
+            logger.warn("未找到 ContextWrapper 或 ContextImpl class")
+            return
+        }
+
+        classesToHook.forEach { clazz ->
+            val methods = runCatching { clazz.declaredMethods }.getOrNull() ?: return@forEach
+            val methodsToHook = methods.filter { method ->
+                val name = method.name
+                (name.startsWith("startService") || name.startsWith("startForegroundService")) &&
+                        method.parameterTypes.isNotEmpty() &&
+                        method.parameterTypes[0] == Intent::class.java
+            }
+
+            methodsToHook.forEach { method ->
+                HookSupport.hookMethod(
+                    module,
+                    logger,
+                    method,
+                    "${clazz.simpleName}.${method.name}"
+                ) { chain ->
+                    val intent = chain.getArg(0) as? Intent
+                    if (isHeytapSpeechAssist(intent) && Prefs.isEnabled(Prefs.Keys.GESTURE_BAR_CIRCLE_TO_SEARCH)) {
+                        val context = chain.getThisObject() as? Context
+                        logger.info("${clazz.simpleName}.${method.name} 拦截到小布语音启动 intent=$intent")
+                        if (context != null && CircleToSearchInvoker.isAvailable(context, logger, "SystemUI_FGS", "回退原逻辑")) {
+                            if (CircleToSearchInvoker.trigger(logger, "SystemUI_FGS")) {
+                                return@hookMethod null // 拦截成功，返回 null 不启动原服务
+                            }
+                        }
+                    }
+                    chain.proceed()
+                }
+                logger.info("已成功挂钩 ${clazz.simpleName}.${method.name}(${method.parameterTypes.joinToString { it.simpleName }})")
+            }
+        }
+    }
+
+    private fun isHeytapSpeechAssist(intent: Intent?): Boolean {
+        if (intent == null) return false
+        val action = intent.action
+        val component = intent.component
+        return action == "heytap.intent.action.ACTIVATE_SPEECH_ASSIST" ||
+                intent.getPackage() == "com.heytap.speechassist" ||
+                component?.packageName == "com.heytap.speechassist"
+    }
 }
+
