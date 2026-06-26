@@ -100,6 +100,7 @@ internal object ContextualSearchHooks {
 
     private fun isAllowedContextualSearchCaller(serviceInstance: Any): Boolean {
         val context = HookSupport.invokeNoArgs(serviceInstance, "getContext") as? Context
+            ?: HookSupport.getFieldValue(serviceInstance, "context") as? Context
             ?: HookSupport.getFieldValue(serviceInstance, "mContext") as? Context
             ?: return false
         val packages = context.packageManager.getPackagesForUid(Binder.getCallingUid()) ?: return false
